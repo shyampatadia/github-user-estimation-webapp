@@ -1,0 +1,132 @@
+{
+  "generated_at": "2026-02-17",
+  "frontier_m": 262206000,
+  "estimate": {
+    "point": 214129064,
+    "ci_lower": 212542476,
+    "ci_upper": 215716002,
+    "bootstrap_se": 805411,
+    "analytical_se": 791354,
+    "validity_rate": 0.8182,
+    "ci_width": 3173526,
+    "relative_ci_width": 0.0148
+  },
+  "strata": {
+    "F1": { "start": 1, "end": 10000000, "size": 10000000, "n": 611, "k": 472, "p_hat": 0.772504, "contribution": 7725041, "label": "1 - 10M" },
+    "F2": { "start": 10000001, "end": 50000000, "size": 40000000, "n": 2445, "k": 1956, "p_hat": 0.800000, "contribution": 32000000, "label": "10M - 50M" },
+    "F3": { "start": 50000001, "end": 100000000, "size": 50000000, "n": 3057, "k": 2753, "p_hat": 0.900556, "contribution": 45027805, "label": "50M - 100M" },
+    "F4": { "start": 100000001, "end": 150000000, "size": 50000000, "n": 3057, "k": 2561, "p_hat": 0.837749, "contribution": 41887471, "label": "100M - 150M" },
+    "F5": { "start": 150000001, "end": 200000000, "size": 50000000, "n": 3057, "k": 2312, "p_hat": 0.756297, "contribution": 37814851, "label": "150M - 200M" },
+    "F6": { "start": 200000001, "end": 250000000, "size": 50000000, "n": 3057, "k": 2418, "p_hat": 0.790972, "contribution": 39548577, "label": "200M - 250M" },
+    "F7": { "start": 250000001, "end": 261712000, "size": 11712000, "n": 716, "k": 619, "p_hat": 0.864525, "contribution": 10125318, "label": "250M - 261.7M" }
+  },
+  "stratum_details": {
+    "F1": { "validity": 77.3, "user_pct": 94.7, "org_pct": 5.3, "mean_repos": 9.1, "empty_pct": 37.5, "mean_followers": 3.5 },
+    "F2": { "validity": 80.0, "user_pct": 93.0, "org_pct": 6.9, "mean_repos": 2.9, "empty_pct": 51.7, "mean_followers": 1.6 },
+    "F3": { "validity": 90.1, "user_pct": 94.6, "org_pct": 4.0, "mean_repos": 2.6, "empty_pct": 56.5, "mean_followers": 0.5 },
+    "F4": { "validity": 83.8, "user_pct": 89.1, "org_pct": 3.3, "mean_repos": 1.6, "empty_pct": 66.1, "mean_followers": 0.4 },
+    "F5": { "validity": 75.6, "user_pct": 86.0, "org_pct": 3.2, "mean_repos": 1.0, "empty_pct": 71.8, "mean_followers": 0.3 },
+    "F6": { "validity": 79.1, "user_pct": 84.0, "org_pct": 2.9, "mean_repos": 0.5, "empty_pct": 78.1, "mean_followers": 0.0 },
+    "F7": { "validity": 86.5, "user_pct": 85.1, "org_pct": 2.3, "mean_repos": 0.3, "empty_pct": 83.5, "mean_followers": 0.0 }
+  },
+  "ground_truth": {
+    "V1": { "start": 1, "end": 1000, "total": 1000, "valid": 928, "invalid": 72, "rate": 0.928, "description": "Oldest accounts" },
+    "V2": { "start": 50001, "end": 51000, "total": 1000, "valid": 914, "invalid": 86, "rate": 0.914, "description": "Early adopter era" },
+    "V3": { "start": 1000001, "end": 1001000, "total": 1000, "valid": 918, "invalid": 82, "rate": 0.918, "description": "Early growth period" },
+    "V4": { "start": 10000001, "end": 10001000, "total": 1000, "valid": 798, "invalid": 202, "rate": 0.798, "description": "2012 era accounts" },
+    "V5": { "start": 50000001, "end": 50001000, "total": 1000, "valid": 951, "invalid": 49, "rate": 0.951, "description": "2016-2017 era" },
+    "V6": { "start": 100000001, "end": 100001000, "total": 1000, "valid": 914, "invalid": 86, "rate": 0.914, "description": "2019-2020 era" },
+    "V7": { "start": 200000001, "end": 200001000, "total": 1000, "valid": 797, "invalid": 203, "rate": 0.797, "description": "2023-2024 era" },
+    "V8": { "start": 260000001, "end": 260001000, "total": 1000, "valid": 931, "invalid": 69, "rate": 0.931, "description": "2026 accounts" }
+  },
+  "population": {
+    "total_valid": 13091,
+    "total_sampled": 16000,
+    "users": 11700,
+    "orgs": 512,
+    "user_pct": 95.81,
+    "org_pct": 4.19,
+    "estimated_users": 205151494,
+    "estimated_orgs": 8977570,
+    "repos": {
+      "mean": 1.92,
+      "median": 0,
+      "max": 1490,
+      "std": 14.70,
+      "zero_pct": 65.0,
+      "with_repos_pct": 35.0,
+      "p75": 1,
+      "p90": 4,
+      "p95": 9,
+      "p99": 29
+    },
+    "followers": {
+      "mean": 0.61,
+      "median": 0,
+      "max": 523,
+      "zero_pct": 91.9,
+      "p90": 0,
+      "p99": 10
+    },
+    "following": {
+      "mean": 0.62,
+      "median": 0,
+      "zero_pct": 90.0
+    },
+    "gists": {
+      "mean": 0.08,
+      "median": 0,
+      "zero_pct": 98.8
+    }
+  },
+  "temporal": {
+    "creation_by_year": {
+      "2008": 3, "2009": 11, "2010": 15, "2011": 40, "2012": 81,
+      "2013": 152, "2014": 188, "2015": 262, "2016": 375, "2017": 519,
+      "2018": 568, "2019": 751, "2020": 1005, "2021": 1058, "2022": 1271,
+      "2023": 1710, "2024": 1732, "2025": 2870, "2026": 480
+    },
+    "dormancy": {
+      "active_1yr": { "count": 5242, "pct": 40.0 },
+      "dormant_1_2yr": { "count": 1960, "pct": 15.0 },
+      "dormant_2_3yr": { "count": 1568, "pct": 12.0 },
+      "dormant_3yr_plus": { "count": 4321, "pct": 33.0 }
+    }
+  },
+  "partitions": {
+    "1000": { "n_partitions": 15, "mean": 214093447, "std": 2846784, "se_mean": 735037 },
+    "2000": { "n_partitions": 7, "mean": 214375432, "std": 1782180, "se_mean": 673601 },
+    "4000": { "n_partitions": 3, "mean": 214666338, "std": 1488802, "se_mean": 859560 },
+    "8000": { "n_partitions": 1, "mean": 214242385, "std": 0, "se_mean": 0 },
+    "16000": { "n_partitions": 1, "mean": 214129064, "std": 0, "se_mean": 0 }
+  },
+  "validation": {
+    "error_by_rate": {
+      "0.005": { "mean_error": 0.0027, "median_error": 0.0741, "std": 0.1601, "max_abs": 0.7494, "runs": 400 },
+      "0.01": { "mean_error": -0.0016, "median_error": 0.0025, "std": 0.1109, "max_abs": 0.4987, "runs": 400 },
+      "0.02": { "mean_error": 0.0003, "median_error": 0.0038, "std": 0.0779, "max_abs": 0.2531, "runs": 400 },
+      "0.05": { "mean_error": 0.0044, "median_error": 0.0066, "std": 0.0472, "max_abs": 0.1685, "runs": 400 },
+      "0.10": { "mean_error": 0.0024, "median_error": 0.0022, "std": 0.0331, "max_abs": 0.1278, "runs": 400 },
+      "0.20": { "mean_error": -0.0005, "median_error": 0.0011, "std": 0.0220, "max_abs": 0.0916, "runs": 400 },
+      "0.50": { "mean_error": -0.0004, "median_error": -0.0011, "std": 0.0105, "max_abs": 0.0476, "runs": 400 }
+    }
+  },
+  "invalid_analysis": {
+    "total_sampled": 16000,
+    "valid": 13091,
+    "invalid": 2909,
+    "valid_pct": 81.82,
+    "invalid_pct": 18.18,
+    "estimated_valid": 214129064,
+    "estimated_invalid": 47582513
+  },
+  "methodology": {
+    "total_api_calls": 24000,
+    "ground_truth_calls": 8000,
+    "sample_pool_calls": 16000,
+    "bootstrap_iterations": 1000,
+    "rate_limit_per_hour": 5000,
+    "num_strata_ground_truth": 8,
+    "num_strata_full_space": 7
+  }
+}

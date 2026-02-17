@@ -2,26 +2,87 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: 220 14% 4%;
+    --foreground: 210 17% 90%;
+    --card: 220 13% 7%;
+    --card-foreground: 210 17% 90%;
+    --popover: 220 13% 7%;
+    --popover-foreground: 210 17% 90%;
+    --primary: 212 92% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 13% 12%;
+    --secondary-foreground: 210 17% 80%;
+    --muted: 220 13% 12%;
+    --muted-foreground: 215 14% 55%;
+    --accent: 220 13% 14%;
+    --accent-foreground: 210 17% 90%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 16%;
+    --input: 220 13% 16%;
+    --ring: 212 92% 45%;
+    --chart-1: 212 92% 45%;
+    --chart-2: 140 71% 45%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 350 80% 55%;
+    --radius: 0.375rem;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+/* GitHub-style scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(220 13% 7%);
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(220 13% 20%);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(220 13% 28%);
+}
+
+/* KaTeX overrides for dark theme */
+.katex { color: hsl(210 17% 90%); }
+.katex .mord { color: hsl(210 17% 90%); }
+
+/* Glow animation for hero number */
+@keyframes glow-pulse {
+  0%, 100% { text-shadow: 0 0 20px rgba(56, 132, 255, 0.3); }
+  50% { text-shadow: 0 0 40px rgba(56, 132, 255, 0.6), 0 0 80px rgba(56, 132, 255, 0.2); }
+}
+.glow-text {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+/* Gradient border for cards */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, hsl(212 92% 45% / 0.4), transparent 50%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
 }
