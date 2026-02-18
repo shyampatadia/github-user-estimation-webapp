@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MathBlock } from "@/components/math-block";
-import { getBaseline, getHistory } from "@/lib/data";
+import { getHistory } from "@/lib/data";
 
 interface ProbeResult {
   id: number;
@@ -56,8 +56,6 @@ function getInitialFrontier() {
 }
 
 export function RealtimeDashboard() {
-  const baseline = getBaseline();
-  const dailyHistory = getHistory();
   const initialFrontier = getInitialFrontier();
 
   const [isLive, setIsLive] = useState(false);
@@ -189,17 +187,6 @@ export function RealtimeDashboard() {
       hour12: true,
     }) + " EST";
   };
-
-  // Projections using average daily growth
-  const avgDailyGrowth = dailyHistory.length >= 2
-    ? (dailyHistory[dailyHistory.length - 1].frontier_id - dailyHistory[0].frontier_id) / Math.max(dailyHistory.length - 1, 1)
-    : 400000;
-
-  const projections = [30, 90, 365].map((days) => {
-    const projFrontier = currentFrontier + Math.round(avgDailyGrowth * days);
-    const projUsers = Math.round(projFrontier * baseline.estimate.validity_rate);
-    return { days, label: days === 365 ? "1 Year" : `${days} Days`, projFrontier, projUsers };
-  });
 
   return (
     <div className="space-y-6">
@@ -463,33 +450,16 @@ export function RealtimeDashboard() {
         </CardContent>
       </Card>
 
-      {/* Projections */}
-      <Card className="bg-card border-border">
-        <CardHeader>
-          <CardTitle className="text-sm font-semibold">Linear Projections</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-xs text-muted-foreground mb-4">
-            Based on ~{fmt(Math.round(avgDailyGrowth))} new IDs/day and {(baseline.estimate.validity_rate * 100).toFixed(1)}% validity rate.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {projections.map((p) => (
-              <div key={p.days} className="rounded-lg border border-border p-4 bg-secondary/20">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">{p.label}</p>
-                <p className="text-xl font-bold text-foreground font-mono tabular-nums">
-                  ~{fmtBig(p.projUsers)}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1 font-mono">
-                  Frontier: ~{fmtBig(p.projFrontier)}
-                </p>
-              </div>
-            ))}
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-4">
-            Linear extrapolations assuming constant growth and validity rates.
-          </p>
-        </CardContent>
-      </Card>
+      {/* Projections link */}
+      <div className="flex items-center gap-2 rounded-md border border-border/50 bg-secondary/20 px-4 py-3">
+        <svg className="h-4 w-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
+        </svg>
+        <p className="text-sm text-muted-foreground">
+          Growth projections (30d, 90d, 1yr) are available on the{" "}
+          <a href="/" className="text-primary hover:underline font-medium">Dashboard</a>.
+        </p>
+      </div>
 
       {/* Estimation Formula */}
       <Card className="bg-card border-border">

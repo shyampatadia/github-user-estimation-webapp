@@ -1,6 +1,7 @@
 import { HeroStats } from "@/components/hero-stats";
 import { StatsCards } from "@/components/stats-cards";
 import { GrowthChart } from "@/components/growth-chart";
+import { ProjectionsCard } from "@/components/projections-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const QUICK_LINKS = [
@@ -63,6 +64,8 @@ export default function DashboardPage() {
           <GrowthChart compact />
         </CardContent>
       </Card>
+
+      <ProjectionsCard />
 
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">
