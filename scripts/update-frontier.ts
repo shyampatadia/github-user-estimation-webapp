@@ -15,17 +15,27 @@ const API_BASE = "https://api.github.com/user";
 const DATA_DIR = join(__dirname, "..", "src", "data");
 const BASELINE_PATH = join(DATA_DIR, "baseline.json");
 const HISTORY_PATH = join(DATA_DIR, "history.json");
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const MAX_RUNTIME_MS = 8 * 60 * 1000; // 8-minute hard cap
+const startTime = Date.now();
 
 // Rate-limited fetch with retry
 async function fetchUser(id: number): Promise<boolean> {
+  if (Date.now() - startTime > MAX_RUNTIME_MS) {
+    throw new Error("MAX_RUNTIME exceeded");
+  }
+
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github.v3+json",
+    "User-Agent": "github-user-estimation-tracker",
+  };
+  if (GITHUB_TOKEN) {
+    headers["Authorization"] = `token ${GITHUB_TOKEN}`;
+  }
+
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const res = await fetch(`${API_BASE}/${id}`, {
-        headers: {
-          Accept: "application/vnd.github.v3+json",
-          "User-Agent": "github-user-estimation-tracker",
-        },
-      });
+      const res = await fetch(`${API_BASE}/${id}`, { headers });
 
       if (res.status === 200) return true;
       if (res.status === 404) return false;
@@ -39,7 +49,8 @@ async function fetchUser(id: number): Promise<boolean> {
       }
 
       return false;
-    } catch {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "MAX_RUNTIME exceeded") throw err;
       await new Promise((r) => setTimeout(r, 5000));
     }
   }
@@ -52,45 +63,53 @@ async function findFrontier(low: number, high: number): Promise<number> {
 
   let bestFound = low;
 
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    const exists = await fetchUser(mid);
+  try {
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const exists = await fetchUser(mid);
 
-    if (exists) {
-      bestFound = mid;
-      low = mid + 1;
-      console.log(`  Found valid ID: ${mid}`);
-    } else {
-      // Check a few IDs around mid to handle gaps
-      let foundNearby = false;
-      for (let offset = 1; offset <= 5; offset++) {
-        if (await fetchUser(mid + offset)) {
-          bestFound = Math.max(bestFound, mid + offset);
-          low = mid + offset + 1;
-          foundNearby = true;
-          console.log(`  Found valid ID: ${mid + offset} (nearby)`);
-          break;
+      if (exists) {
+        bestFound = mid;
+        low = mid + 1;
+        console.log(`  Found valid ID: ${mid}`);
+      } else {
+        // Check a couple of IDs around mid to handle gaps
+        let foundNearby = false;
+        for (let offset = 1; offset <= 2; offset++) {
+          if (await fetchUser(mid + offset)) {
+            bestFound = Math.max(bestFound, mid + offset);
+            low = mid + offset + 1;
+            foundNearby = true;
+            console.log(`  Found valid ID: ${mid + offset} (nearby)`);
+            break;
+          }
+        }
+        if (!foundNearby) {
+          high = mid - 1;
         }
       }
-      if (!foundNearby) {
-        high = mid - 1;
-      }
     }
-  }
 
-  // Scan forward from best found to push frontier higher
-  console.log(`Scanning forward from ${bestFound}...`);
-  let scanId = bestFound + 1;
-  let consecutiveMisses = 0;
-  while (consecutiveMisses < 20) {
-    const exists = await fetchUser(scanId);
-    if (exists) {
-      bestFound = scanId;
-      consecutiveMisses = 0;
-    } else {
-      consecutiveMisses++;
+    // Scan forward from best found to push frontier higher
+    console.log(`Scanning forward from ${bestFound}...`);
+    let scanId = bestFound + 1;
+    let consecutiveMisses = 0;
+    while (consecutiveMisses < 5) {
+      const exists = await fetchUser(scanId);
+      if (exists) {
+        bestFound = scanId;
+        consecutiveMisses = 0;
+      } else {
+        consecutiveMisses++;
+      }
+      scanId++;
     }
-    scanId++;
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === "MAX_RUNTIME exceeded") {
+      console.warn(`Runtime cap hit — returning best found so far: ${bestFound}`);
+    } else {
+      throw err;
+    }
   }
 
   return bestFound;
@@ -122,6 +141,7 @@ function computeEstimate(
 async function main() {
   console.log("=== GitHub Frontier Update ===");
   console.log(`Time: ${new Date().toISOString()}`);
+  console.log(`Auth: ${GITHUB_TOKEN ? "token present (5000 req/hr)" : "no token (60 req/hr — will be slow)"}`);
 
   // Load baseline
   const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf-8"));
