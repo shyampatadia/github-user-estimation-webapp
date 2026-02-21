@@ -77,7 +77,7 @@ export default function MethodologyPage() {
             <div className="rounded-md bg-secondary/50 p-4 overflow-x-auto">
               <MathBlock math="\hat{N} = \sum_{h=1}^{H} M_h \cdot \hat{p}_h" />
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
+            <p className="text-sm text-muted-foreground mt-2">
               where <MathBlock math="M_h" display={false} /> is stratum size and <MathBlock math="\hat{p}_h = k_h / n_h" display={false} /> is the sample validity rate.
             </p>
           </div>

@@ -36,6 +36,23 @@ export default function ResultsPage() {
         </p>
       </div>
 
+      {/* Baseline study notice */}
+      <div className="flex items-start gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+        <svg className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+        </svg>
+        <div>
+          <p className="text-sm font-medium text-amber-400">Baseline Study Results — Not Realtime</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            All figures, CI bounds, and statistics on this page are from our one-time baseline study conducted on{" "}
+            <span className="font-medium text-foreground">{data.generated_at}</span> using 16,000 sampled IDs across 7 strata.
+            The 95% CI reflects sampling uncertainty from that study.
+            For the live estimate with a dynamically updated CI, see the{" "}
+            <a href="/realtime" className="text-primary hover:underline font-medium">Realtime Monitor</a>.
+          </p>
+        </div>
+      </div>
+
       <Tabs defaultValue="estimation" className="w-full">
         <TabsList className="bg-secondary/50 border border-border">
           <TabsTrigger value="estimation">Estimation</TabsTrigger>
@@ -83,36 +100,97 @@ export default function ResultsPage() {
           {/* Partition Analysis */}
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-base">Partition Analysis (Unbiasedness Check)</CardTitle>
+              <CardTitle className="text-base">Unbiasedness Check — Does the answer change with fewer samples?</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="rounded-lg border border-border overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-secondary/50 hover:bg-secondary/50">
-                      <TableHead className="text-xs font-semibold">Budget</TableHead>
-                      <TableHead className="text-xs font-semibold text-right"># Partitions</TableHead>
-                      <TableHead className="text-xs font-semibold text-right">Mean Estimate</TableHead>
-                      <TableHead className="text-xs font-semibold text-right">Std Dev</TableHead>
-                      <TableHead className="text-xs font-semibold text-right">SE of Mean</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {Object.entries(data.partitions).map(([budget, p]) => (
-                      <TableRow key={budget} className="hover:bg-secondary/30">
-                        <TableCell className="font-mono text-sm font-medium text-primary">{formatNumberFull(Number(budget))}</TableCell>
-                        <TableCell className="text-sm text-right font-mono tabular-nums">{p.n_partitions}</TableCell>
-                        <TableCell className="text-sm text-right font-mono tabular-nums">{formatNumberFull(p.mean)}</TableCell>
-                        <TableCell className="text-sm text-right font-mono tabular-nums">{formatNumberFull(p.std)}</TableCell>
-                        <TableCell className="text-sm text-right font-mono tabular-nums">{formatNumberFull(p.se_mean)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+            <CardContent className="space-y-5">
+              {/* Plain-English walkthrough */}
+              <div className="rounded-md border border-blue-500/20 bg-blue-500/5 p-4 space-y-2">
+                <p className="text-sm font-semibold text-foreground">What this test is asking</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  A good estimator should give roughly the <span className="text-foreground font-medium">same answer</span> regardless
+                  of how many samples you use — it just gets noisier with fewer samples.
+                  To verify this, we split our 16,000-sample budget into smaller groups (partitions) at different sizes
+                  and ran the estimator independently on each group.
+                  If the <span className="text-foreground font-medium">average estimate</span> stays near ~214M at every budget level,
+                  the estimator is <span className="text-green-400 font-medium">unbiased</span>.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-3">
-                The mean estimate is stable across budget levels (max deviation 0.20%), confirming the estimator is unbiased and correct.
-              </p>
+
+              {/* Column legend */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                {[
+                  { label: "Samples per run", desc: "How many API probes each independent run used" },
+                  { label: "Independent runs", desc: "How many non-overlapping groups we could form" },
+                  { label: "Average estimate", desc: "Mean of all runs — should stay near 214M" },
+                  { label: "Run-to-run spread", desc: "Std dev across runs — should shrink as samples grow" },
+                ].map((c) => (
+                  <div key={c.label} className="rounded-md bg-secondary/40 p-2.5 space-y-1">
+                    <p className="font-semibold text-foreground">{c.label}</p>
+                    <p className="text-muted-foreground leading-relaxed">{c.desc}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Table */}
+              {(() => {
+                const finalMean = data.partitions["16000"].mean;
+                return (
+                  <div className="rounded-lg border border-border overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-secondary/50 hover:bg-secondary/50">
+                          <TableHead className="text-xs font-semibold">Samples per run</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Independent runs</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Average estimate</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Run-to-run spread</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Drift from final</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {Object.entries(data.partitions).map(([budget, p]) => {
+                          const drift = Math.abs(p.mean - finalMean) / finalMean * 100;
+                          const isFinal = budget === "16000";
+                          return (
+                            <TableRow key={budget} className={isFinal ? "bg-green-500/5 hover:bg-green-500/10" : "hover:bg-secondary/30"}>
+                              <TableCell className={`font-mono text-sm font-medium ${isFinal ? "text-green-400" : "text-primary"}`}>
+                                {formatNumberFull(Number(budget))}
+                                {isFinal && <span className="ml-2 text-xs text-green-400/70">(final study)</span>}
+                              </TableCell>
+                              <TableCell className="text-sm text-right font-mono tabular-nums text-muted-foreground">{p.n_partitions}</TableCell>
+                              <TableCell className="text-sm text-right font-mono tabular-nums text-foreground font-medium">{formatNumberFull(p.mean)}</TableCell>
+                              <TableCell className="text-sm text-right font-mono tabular-nums text-muted-foreground">
+                                {p.std > 0 ? `±${formatNumberFull(p.std)}` : <span className="text-green-400">—</span>}
+                              </TableCell>
+                              <TableCell className="text-sm text-right font-mono tabular-nums">
+                                {isFinal ? (
+                                  <span className="text-green-400 font-medium">baseline</span>
+                                ) : (
+                                  <span className={drift < 0.3 ? "text-green-400" : drift < 1.0 ? "text-amber-400" : "text-red-400"}>
+                                    {drift.toFixed(2)}%
+                                  </span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                );
+              })()}
+
+              {/* Takeaway */}
+              <div className="flex items-start gap-3 rounded-md border border-green-500/20 bg-green-500/5 p-3">
+                <svg className="h-4 w-4 text-green-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                <p className="text-sm text-muted-foreground">
+                  <span className="text-green-400 font-semibold">Result: unbiased. </span>
+                  Even with as few as 1,000 samples per run, the average estimate stays within <span className="text-foreground font-medium">0.20%</span> of
+                  the full-budget answer. The spread (std dev) decreases as expected when more samples are used,
+                  confirming the estimator is both unbiased and statistically consistent.
+                </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -268,7 +346,7 @@ export default function ResultsPage() {
                 <CardContent className="p-4 text-center">
                   <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">{s.label}</p>
                   <p className="text-xl font-bold text-foreground font-mono">{s.value}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">{s.sub}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{s.sub}</p>
                 </CardContent>
               </Card>
             ))}

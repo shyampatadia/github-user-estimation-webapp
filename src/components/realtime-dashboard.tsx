@@ -55,8 +55,68 @@ function getInitialFrontier() {
   return h[h.length - 1]?.frontier_id || 262_206_000;
 }
 
+// Derive a baseline hourly growth rate from history.json entries.
+// Each entry's daily_new_ids = IDs added since previous day's entry (≈24h gap).
+// Average the last 7 entries for stability.
+function getBaselineGrowthRate(): number {
+  const h = getHistory();
+  const recent = h.slice(-7).filter((e) => e.daily_new_ids > 0);
+  if (recent.length === 0) return 0;
+  const avgDaily = recent.reduce((sum, e) => sum + e.daily_new_ids, 0) / recent.length;
+  return Math.round(avgDaily / 24); // → IDs per hour
+}
+
+const LS_KEY = "realtime-session";
+
+interface SessionCache {
+  lastScanMs: number;
+  scanCount: number;
+  lastScanTime: string;
+  growthRate: number;
+}
+
+function loadSession(): SessionCache | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(LS_KEY);
+    return raw ? (JSON.parse(raw) as SessionCache) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(s: SessionCache) {
+  try {
+    window.localStorage.setItem(LS_KEY, JSON.stringify(s));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+// Live CI computation using analytical variance formula.
+// F1-F6 variance contribution is fixed from baseline study.
+// F7 variance grows as frontier expands: Var_F7 = M7^2 * p7*(1-p7) / n7
+// F1_F6_VAR derived from: baseline analytical_se^2 - Var_F7_original
+//   = 791354^2 - (11712000^2 * 0.864525 * 0.135475 / 716) ≈ 6.038e11
+const F1_F6_VAR = 6.038e11;
+const F7_VAR_COEFF = (0.864525 * 0.135475) / 716; // p*(1-p)/n for F7
+
+function computeLiveCI(frontier: number, estimate: number) {
+  const m7 = frontier - 250_000_000;
+  const se = Math.sqrt(F1_F6_VAR + m7 * m7 * F7_VAR_COEFF);
+  const margin = 1.96 * se;
+  const relWidth = (2 * margin) / estimate;
+  return {
+    lower: Math.round(estimate - margin),
+    upper: Math.round(estimate + margin),
+    se: Math.round(se),
+    relWidth,
+  };
+}
+
 export function RealtimeDashboard() {
   const initialFrontier = getInitialFrontier();
+  const baselineGrowthRate = getBaselineGrowthRate();
 
   const [isLive, setIsLive] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -65,10 +125,12 @@ export function RealtimeDashboard() {
   const [latestUser, setLatestUser] = useState<ScanResult["frontier_user"]>(null);
   const [liveHistory, setLiveHistory] = useState<HistoryPoint[]>([]);
   const [recentProbes, setRecentProbes] = useState<ProbeResult[]>([]);
-  const [growthRate, setGrowthRate] = useState(0);
+  // Seed growth rate from history; will be refined by live scans
+  const [growthRate, setGrowthRate] = useState(baselineGrowthRate);
   const [lastScanMs, setLastScanMs] = useState(0);
   const [scanCount, setScanCount] = useState(0);
   const [lastScanTime, setLastScanTime] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<"history" | "live">("history");
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const prevScanTime = useRef<number>(0);
@@ -80,6 +142,21 @@ export function RealtimeDashboard() {
     const f7 = (currentFrontier - 250000000) * 0.864525;
     setCurrentEstimate(Math.round(f1f6 + f7));
   }, [currentFrontier]);
+
+  // Restore session from localStorage on mount
+  useEffect(() => {
+    const session = loadSession();
+    if (session) {
+      if (session.lastScanMs > 0) setLastScanMs(session.lastScanMs);
+      if (session.scanCount > 0) setScanCount(session.scanCount);
+      if (session.lastScanTime) setLastScanTime(session.lastScanTime);
+      // Only override history-derived rate if session has a live-measured rate
+      if (session.growthRate > 0) {
+        setGrowthRate(session.growthRate);
+        setDataSource("live");
+      }
+    }
+  }, []);
 
   const formatESTFull = (date: Date) =>
     date.toLocaleString("en-US", {
@@ -120,8 +197,22 @@ export function RealtimeDashboard() {
       setCurrentEstimate(data.estimated_total);
       setLatestUser(data.frontier_user);
       setLastScanMs(data.probe_ms);
-      setScanCount((c) => c + 1);
-      setLastScanTime(formatESTFull(new Date()));
+      const newScanCount = scanCount + 1;
+      setScanCount(newScanCount);
+      const scanTimeStr = formatESTFull(new Date());
+      setLastScanTime(scanTimeStr);
+
+      // Persist session so values survive page refresh
+      saveSession({
+        lastScanMs: data.probe_ms,
+        scanCount: newScanCount,
+        lastScanTime: scanTimeStr,
+        growthRate: timeDiffHours > 0 && idDiff > 0
+          ? Math.round(idDiff / timeDiffHours)
+          : growthRate,
+      });
+
+      if (timeDiffHours > 0 && idDiff > 0) setDataSource("live");
 
       setRecentProbes((prev) => {
         const newProbes = [...data.probes.filter((p) => p.exists), ...prev];
@@ -147,7 +238,7 @@ export function RealtimeDashboard() {
     } finally {
       setIsScanning(false);
     }
-  }, [currentFrontier, isScanning]);
+  }, [currentFrontier, isScanning, scanCount, growthRate]);
 
   useEffect(() => {
     if (isLive) {
@@ -286,12 +377,24 @@ export function RealtimeDashboard() {
             <p className="text-4xl sm:text-5xl font-bold font-mono tabular-nums text-green-400 tracking-tight glow-text">
               ~{fmtBig(currentEstimate)}
             </p>
-            <div className="mt-3">
-              <MathBlock
-                math="\hat{N} = \sum_{h=1}^{7} M_h \cdot \hat{p}_h"
-                display={false}
-              />
-            </div>
+            {currentEstimate > 0 && (() => {
+              const ci = computeLiveCI(currentFrontier, currentEstimate);
+              return (
+                <div className="mt-3 space-y-1">
+                  <p className="text-xs text-muted-foreground">
+                    95% CI:{" "}
+                    <span className="font-mono text-foreground">
+                      [{fmtBig(ci.lower)}, {fmtBig(ci.upper)}]
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    SE: <span className="font-mono text-foreground">{fmt(ci.se)}</span>
+                    {" · "}
+                    Rel. width: <span className="font-mono text-foreground">{(ci.relWidth * 100).toFixed(2)}%</span>
+                  </p>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>
@@ -300,38 +403,62 @@ export function RealtimeDashboard() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Card className="bg-card border-border">
           <CardContent className="p-4">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Growth Rate</p>
-            <p className="text-xl font-bold text-blue-400 font-mono tabular-nums">
-              {growthRate > 0 ? `${fmt(growthRate)}/hr` : "--"}
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Growth Rate</p>
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${dataSource === "live" ? "bg-green-500/15 text-green-400" : "bg-secondary text-muted-foreground"}`}>
+                {dataSource === "live" ? "live" : "history"}
+              </span>
+            </div>
+            <p className="text-2xl font-bold text-blue-400 font-mono tabular-nums">
+              {fmt(growthRate)}/hr
             </p>
-            <p className="text-[10px] text-muted-foreground mt-1">IDs allocated per hour</p>
+            <p className="text-xs text-muted-foreground mt-1">IDs allocated per hour</p>
           </CardContent>
         </Card>
         <Card className="bg-card border-border">
           <CardContent className="p-4">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">New Users/Hr</p>
-            <p className="text-xl font-bold text-green-400 font-mono tabular-nums">
-              {growthRate > 0 ? `~${fmt(Math.round(growthRate * 0.8182))}/hr` : "--"}
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">New Users/Hr</p>
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${dataSource === "live" ? "bg-green-500/15 text-green-400" : "bg-secondary text-muted-foreground"}`}>
+                {dataSource === "live" ? "live" : "history"}
+              </span>
+            </div>
+            <p className="text-2xl font-bold text-green-400 font-mono tabular-nums">
+              ~{fmt(Math.round(growthRate * 0.8182))}/hr
             </p>
-            <p className="text-[10px] text-muted-foreground mt-1">At 81.82% validity</p>
+            <p className="text-xs text-muted-foreground mt-1">At 81.82% validity</p>
           </CardContent>
         </Card>
         <Card className="bg-card border-border">
           <CardContent className="p-4">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Daily Rate</p>
-            <p className="text-xl font-bold text-orange-400 font-mono tabular-nums">
-              {growthRate > 0 ? `~${fmtBig(growthRate * 24)}/day` : "--"}
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Daily Rate</p>
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${dataSource === "live" ? "bg-green-500/15 text-green-400" : "bg-secondary text-muted-foreground"}`}>
+                {dataSource === "live" ? "live" : "history"}
+              </span>
+            </div>
+            <p className="text-2xl font-bold text-orange-400 font-mono tabular-nums">
+              ~{fmtBig(growthRate * 24)}/day
             </p>
-            <p className="text-[10px] text-muted-foreground mt-1">Extrapolated</p>
+            <p className="text-xs text-muted-foreground mt-1">Extrapolated 24h</p>
           </CardContent>
         </Card>
         <Card className="bg-card border-border">
           <CardContent className="p-4">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Scan Latency</p>
-            <p className="text-xl font-bold text-purple-400 font-mono tabular-nums">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Scan Latency</p>
+              {lastScanMs > 0 && (
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400">
+                  {scanCount} scans
+                </span>
+              )}
+            </div>
+            <p className="text-2xl font-bold text-purple-400 font-mono tabular-nums">
               {lastScanMs > 0 ? `${lastScanMs}ms` : "--"}
             </p>
-            <p className="text-[10px] text-muted-foreground mt-1">{scanCount} scans, {recentProbes.length} probes</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {lastScanMs > 0 ? `${recentProbes.length} probes this session` : "Run a scan to measure"}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -352,12 +479,12 @@ export function RealtimeDashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 16%)" />
                   <XAxis
                     dataKey="time"
-                    tick={{ fontSize: 10, fill: "hsl(215, 14%, 55%)" }}
+                    tick={{ fontSize: 10, fill: "hsl(215, 18%, 68%)" }}
                     axisLine={{ stroke: "hsl(220, 13%, 16%)" }}
                     tickLine={false}
                   />
                   <YAxis
-                    tick={{ fontSize: 10, fill: "hsl(215, 14%, 55%)" }}
+                    tick={{ fontSize: 10, fill: "hsl(215, 18%, 68%)" }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(v) => fmtBig(v)}
@@ -428,7 +555,7 @@ export function RealtimeDashboard() {
                       </span>
                       <Badge
                         variant="secondary"
-                        className={`text-[10px] flex-shrink-0 ${
+                        className={`text-xs flex-shrink-0 ${
                           probe.user.type === "User"
                             ? "text-blue-400"
                             : probe.user.type === "Organization"
@@ -438,7 +565,7 @@ export function RealtimeDashboard() {
                       >
                         {probe.user.type}
                       </Badge>
-                      <span className="text-[11px] text-muted-foreground ml-auto flex-shrink-0 font-mono">
+                      <span className="text-xs text-muted-foreground ml-auto flex-shrink-0 font-mono">
                         {createdAtEST(probe.user.created_at)}
                       </span>
                     </>
@@ -461,78 +588,127 @@ export function RealtimeDashboard() {
         </p>
       </div>
 
-      {/* Estimation Formula */}
+      {/* How Scanning Works */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Live Estimation Breakdown</CardTitle>
+          <CardTitle className="text-sm font-semibold">How Scanning Works</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            The estimate is recomputed by extending stratum F7 to the live frontier,
-            keeping all validity rates fixed from our baseline study of 16,000 samples.
-          </p>
-
-          <div className="rounded-md bg-secondary/50 p-4 overflow-x-auto">
-            <MathBlock math="\hat{N} = \sum_{h=1}^{7} M_h \cdot \hat{p}_h" />
-          </div>
-
-          <div className="rounded-md bg-secondary/50 p-4 font-mono text-xs leading-6 overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-muted-foreground border-b border-border/50">
-                  <th className="text-left pb-2 pr-4">Stratum</th>
-                  <th className="text-left pb-2 pr-4">Range</th>
-                  <th className="text-right pb-2 pr-4">M_h</th>
-                  <th className="text-right pb-2 pr-4">p&#770;_h</th>
-                  <th className="text-right pb-2">Contribution</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { id: "F1", range: "1 - 10M", size: "10,000,000", p: "0.7725", val: "7,725,041" },
-                  { id: "F2", range: "10M - 50M", size: "40,000,000", p: "0.8000", val: "32,000,000" },
-                  { id: "F3", range: "50M - 100M", size: "50,000,000", p: "0.9006", val: "45,027,805" },
-                  { id: "F4", range: "100M - 150M", size: "50,000,000", p: "0.8377", val: "41,887,471" },
-                  { id: "F5", range: "150M - 200M", size: "50,000,000", p: "0.7563", val: "37,814,851" },
-                  { id: "F6", range: "200M - 250M", size: "50,000,000", p: "0.7910", val: "39,548,577" },
-                ].map((row) => (
-                  <tr key={row.id} className="border-b border-border/30">
-                    <td className="py-1.5 pr-4 text-blue-400">{row.id}</td>
-                    <td className="py-1.5 pr-4 text-muted-foreground">{row.range}</td>
-                    <td className="py-1.5 pr-4 text-right">{row.size}</td>
-                    <td className="py-1.5 pr-4 text-right">{row.p}</td>
-                    <td className="py-1.5 text-right text-foreground">{row.val}</td>
-                  </tr>
-                ))}
-                <tr className="border-b border-border/30">
-                  <td className="py-1.5 pr-4 text-green-400 font-semibold">F7</td>
-                  <td className="py-1.5 pr-4 text-green-400">250M - {fmtBig(currentFrontier)}</td>
-                  <td className="py-1.5 pr-4 text-right text-green-400">{fmt(currentFrontier - 250_000_000)}</td>
-                  <td className="py-1.5 pr-4 text-right text-green-400">0.8645</td>
-                  <td className="py-1.5 text-right text-green-400 font-semibold">{fmt(Math.round((currentFrontier - 250_000_000) * 0.864525))}</td>
-                </tr>
-                <tr className="font-semibold">
-                  <td colSpan={4} className="py-2 pr-4 text-foreground">Total</td>
-                  <td className="py-2 text-right text-green-400 text-sm">{fmt(currentEstimate)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* How tracking works */}
-          <div className="flex items-start gap-3 pt-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-400 mt-0.5">
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-foreground mb-1">How does this work?</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Live Mode */}
+            <div className="rounded-md border border-red-500/20 bg-red-500/5 p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-sm font-semibold text-foreground">Live Mode</span>
+              </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Each scan probes the GitHub API via binary search to find the maximum valid user ID (frontier).
-                The estimate is recomputed by extending F7 to the new frontier while keeping observed validity
-                rates fixed. A daily GitHub Action also updates the baseline automatically.
+                Automatically re-runs a scan every <span className="text-foreground font-medium">30 seconds</span>.
+                Each scan makes ~12 GitHub API calls to locate the current frontier and recomputes the population estimate.
+                Use this to watch the frontier advance in real time.
               </p>
+            </div>
+            {/* Manual Scan */}
+            <div className="rounded-md border border-blue-500/20 bg-blue-500/5 p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672 13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672ZM12 2.25V4.5m5.834.166-1.591 1.591M20.25 10.5H18M7.757 14.743l-1.59 1.59M6 10.5H3.75m4.007-4.243-1.59-1.59" />
+                </svg>
+                <span className="text-sm font-semibold text-foreground">Manual Scan</span>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Runs a <span className="text-foreground font-medium">single on-demand scan</span> using the same algorithm.
+                Useful for checking the current frontier without continuous polling.
+              </p>
+            </div>
+          </div>
+
+          {/* Algorithm */}
+          <div className="rounded-md bg-secondary/40 p-4 space-y-3">
+            <p className="text-sm font-semibold text-foreground">Scan Algorithm (~12 API calls per scan)</p>
+            <ol className="space-y-2 text-sm text-muted-foreground list-none">
+              <li className="flex items-start gap-3">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold mt-0.5">1</span>
+                <span><span className="text-foreground font-medium">Exponential forward scan</span> — probes at +1K, +2K, +4K, +8K, +16K, +32K from last known frontier until a 404 is hit. Finds the overshoot boundary in O(log gap) calls.</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold mt-0.5">2</span>
+                <span><span className="text-foreground font-medium">Binary search</span> — narrows the gap between the last valid ID and the overshoot to ~200 ID precision in ~4 calls.</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold mt-0.5">3</span>
+                <span><span className="text-foreground font-medium">Fine forward scan</span> — probes +100 steps from the refined frontier to push it as far forward as possible before committing.</span>
+              </li>
+            </ol>
+          </div>
+
+          {/* Estimate formula — step-by-step derivation */}
+          <div className="rounded-md bg-secondary/40 p-4 space-y-4">
+            <p className="text-sm font-semibold text-foreground">Where does the estimate come from?</p>
+
+            {/* Step 1 */}
+            <div className="flex items-start gap-3">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-bold mt-0.5">1</span>
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold text-foreground">Measure validity rate in each ID range (stratum)</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  We randomly sampled IDs from 7 ranges (strata) and called the GitHub API on each one.
+                  An ID is <span className="text-green-400 font-medium">valid</span> if GitHub returns a user/org,{" "}
+                  <span className="text-red-400 font-medium">invalid</span> (deleted/never assigned) if it returns 404.
+                  This gives us <span className="font-mono text-foreground">p̂ₕ</span> — the fraction of valid IDs in stratum h.
+                </p>
+                <div className="font-mono text-sm text-muted-foreground bg-secondary/60 rounded px-3 py-1.5">
+                  e.g. F3 (50M–100M): 2,753 valid / 3,057 sampled → p̂₃ = <span className="text-foreground font-semibold">0.9006</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="flex items-start gap-3">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-bold mt-0.5">2</span>
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">Scale up to the full stratum size</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Each stratum has a known total number of IDs (<span className="font-mono text-foreground">Mₕ</span>).
+                  Multiplying gives the estimated valid accounts in that stratum:
+                </p>
+                <div className="overflow-x-auto pt-1">
+                  <MathBlock math="\hat{N}_h = M_h \times \hat{p}_h" display={false} />
+                </div>
+                <div className="font-mono text-sm text-muted-foreground bg-secondary/60 rounded px-3 py-1.5">
+                  e.g. F3: 50,000,000 × 0.9006 = <span className="text-foreground font-semibold">45,027,805</span> valid accounts
+                </div>
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div className="flex items-start gap-3">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-bold mt-0.5">3</span>
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold text-foreground">Sum across all strata</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  F1–F6 have fixed sizes (their ID ranges are fully defined). Their contributions are computed once from the baseline study.
+                </p>
+                <div className="overflow-x-auto pt-1">
+                  <MathBlock math="\hat{N} = \sum_{h=1}^{7} M_h \cdot \hat{p}_h" display={false} />
+                </div>
+              </div>
+            </div>
+
+            {/* Step 4 — Live part */}
+            <div className="flex items-start gap-3">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-500/20 text-green-400 text-xs font-bold mt-0.5">4</span>
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold text-foreground">F7 is the only live part</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Stratum F7 starts at ID 250,000,001 and its upper bound grows daily as GitHub creates new accounts.
+                  Each scan finds the current frontier ID, making{" "}
+                  <span className="font-mono text-foreground">M₇ = frontier − 250M</span>.
+                  The validity rate <span className="font-mono text-foreground">p̂₇ = 0.8645</span> stays fixed from the study.
+                </p>
+                <div className="overflow-x-auto pt-1">
+                  <MathBlock math="\hat{N} = \underbrace{203{,}993{,}745}_{\text{F1–F6 (fixed)}} + \underbrace{(F_{\text{frontier}} - 250\text{M}) \times 0.8645}_{\text{F7 (live)}}" display={false} />
+                </div>
+              </div>
             </div>
           </div>
         </CardContent>

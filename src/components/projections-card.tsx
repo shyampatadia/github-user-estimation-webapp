@@ -68,7 +68,7 @@ export function ProjectionsCard() {
             </svg>
             Growth Projections
           </CardTitle>
-          <span className="text-[10px] text-muted-foreground font-mono">
+          <span className="text-xs text-muted-foreground font-mono">
             ~{fmt(Math.round(avgDailyGrowth))} IDs/day | {(validityRate * 100).toFixed(1)}% validity
           </span>
         </div>
@@ -78,13 +78,13 @@ export function ProjectionsCard() {
         <div className="flex items-center gap-3 rounded-md bg-secondary/40 border border-border/50 px-4 py-3">
           <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Now</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Now</p>
             <p className="text-lg font-bold font-mono tabular-nums text-green-400">
               ~{fmtBig(currentEstimate)}
             </p>
           </div>
           <div className="text-right">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Frontier</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Frontier</p>
             <p className="text-sm font-mono tabular-nums text-muted-foreground">
               {fmtBig(currentFrontier)}
             </p>
@@ -118,7 +118,7 @@ export function ProjectionsCard() {
                     </span>
                   </div>
                   <span
-                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${c.badge}`}
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${c.badge}`}
                   >
                     +{p.growthPct}%
                   </span>
@@ -128,7 +128,7 @@ export function ProjectionsCard() {
                   ~{fmtBig(p.projUsers)}
                 </p>
 
-                <p className="text-[11px] text-muted-foreground font-mono mb-3">
+                <p className="text-xs text-muted-foreground font-mono mb-3">
                   +{fmtBig(p.growth)} users
                 </p>
 
@@ -141,7 +141,7 @@ export function ProjectionsCard() {
                     />
                   </div>
                   <div className="flex justify-between mt-1.5">
-                    <span className="text-[10px] text-muted-foreground font-mono">
+                    <span className="text-xs text-muted-foreground font-mono">
                       Frontier: ~{fmtBig(p.projFrontier)}
                     </span>
                   </div>
@@ -175,7 +175,7 @@ export function ProjectionsCard() {
           </div>
         )}
 
-        <p className="text-[10px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Linear extrapolation assuming constant ID allocation rate and fixed validity rates from baseline study. Updated daily via GitHub Actions.
         </p>
       </CardContent>

@@ -80,7 +80,7 @@ export default function DashboardPage() {
                     {link.icon}
                   </div>
                   <h3 className="text-sm font-semibold text-foreground mb-1">{link.title}</h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{link.description}</p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{link.description}</p>
                 </CardContent>
               </Card>
             </a>

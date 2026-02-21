@@ -16,7 +16,7 @@ const COLORS = {
   primary: "hsl(212, 92%, 45%)",
   green: "hsl(140, 71%, 45%)",
   border: "hsl(220, 13%, 16%)",
-  textMuted: "hsl(215, 14%, 55%)",
+  textMuted: "hsl(215, 18%, 68%)",
 };
 
 interface GrowthChartProps {

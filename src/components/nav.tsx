@@ -29,20 +29,23 @@ export function Nav() {
         </Link>
 
         {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className="hidden md:flex items-center gap-0.5">
           {NAV_ITEMS.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "px-3 py-1.5 rounded-md text-sm transition-colors flex items-center gap-1.5",
+                "px-3.5 py-1.5 rounded-md text-sm transition-all duration-150 flex items-center gap-2",
                 pathname === item.href
-                  ? "bg-secondary text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                  ? "bg-primary/10 text-primary border border-primary/25 font-semibold"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/60 border border-transparent"
               )}
             >
               {"live" in item && item.live && (
-                <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                <span className={cn(
+                  "h-1.5 w-1.5 rounded-full flex-shrink-0",
+                  pathname === item.href ? "bg-red-400 animate-pulse" : "bg-red-500/60 animate-pulse"
+                )} />
               )}
               {item.label}
             </Link>
@@ -67,21 +70,21 @@ export function Nav() {
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <nav className="md:hidden border-t border-border bg-background px-4 py-2">
+        <nav className="md:hidden border-t border-border bg-background px-4 py-2 space-y-0.5">
           {NAV_ITEMS.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               onClick={() => setMobileOpen(false)}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-2 rounded-md text-sm transition-colors",
+                "flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-all",
                 pathname === item.href
-                  ? "bg-secondary text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                  ? "bg-primary/10 text-primary border border-primary/25 font-semibold"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/60 border border-transparent"
               )}
             >
               {"live" in item && item.live && (
-                <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
               )}
               {item.label}
             </Link>

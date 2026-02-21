@@ -20,11 +20,11 @@ const COLORS = {
   green: "hsl(140, 71%, 45%)",
   purple: "hsl(280, 65%, 60%)",
   orange: "hsl(38, 92%, 50%)",
-  muted: "hsl(215, 14%, 55%)",
+  muted: "hsl(215, 18%, 68%)",
   border: "hsl(220, 13%, 16%)",
   cardBg: "hsl(220, 13%, 7%)",
   text: "hsl(210, 17%, 90%)",
-  textMuted: "hsl(215, 14%, 55%)",
+  textMuted: "hsl(215, 18%, 68%)",
 };
 
 function ChartTooltipContent({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string }>; label?: string }) {
@@ -224,7 +224,7 @@ export function ReposDistribution() {
           ].map((p) => (
             <div key={p.label} className="text-center p-2 rounded-md bg-secondary/30">
               <p className="text-sm font-bold font-mono text-foreground">{p.value}</p>
-              <p className="text-[10px] text-muted-foreground">{p.label}</p>
+              <p className="text-xs text-muted-foreground">{p.label}</p>
             </div>
           ))}
         </div>
