@@ -36,10 +36,6 @@ export function HeroStats() {
     return () => clearInterval(timer);
   }, [target]);
 
-  const ciWidth = (
-    ((data.estimate.ci_upper - data.estimate.ci_lower) / data.estimate.point) * 100
-  ).toFixed(2);
-
   const { num, unit } = splitFormatted(formatNumber(count));
 
   const STATS = [

@@ -79,7 +79,7 @@ export default function MethodologyPage() {
           className="text-lg leading-relaxed"
           style={{ color: "rgba(255,255,255,0.65)" }}
         >
-          Stratified random sampling across GitHub's full numeric ID space —
+          Stratified random sampling across GitHub&apos;s full numeric ID space —
           7 strata, bootstrap confidence intervals, unbiasedness verified.
         </p>
       </div>

@@ -712,9 +712,9 @@ export function RealtimeDashboard() {
                     Measure how many IDs are valid in each range
                   </p>
                   <p className="text-[15px] leading-[1.75]" style={{ color: "rgba(255,255,255,0.75)" }}>
-                    We randomly sampled IDs from 7 ranges and called GitHub's API on each one.
+                    We randomly sampled IDs from 7 ranges and called GitHub&apos;s API on each one.
                     An ID is <span style={{ color: "#4ade80" }} className="font-semibold">valid</span> if it returns a real user or org,{" "}
-                    <span style={{ color: "#f87171" }} className="font-semibold">invalid</span> if it returns "not found".
+                    <span style={{ color: "#f87171" }} className="font-semibold">invalid</span> if it returns &ldquo;not found&rdquo;.
                     This gives the validity rate for each range.
                   </p>
                   <div className="rounded-lg px-4 py-3 mt-1" style={{ background: "rgba(99,155,230,0.1)", border: "1px solid rgba(99,155,230,0.2)" }}>
@@ -767,7 +767,7 @@ export function RealtimeDashboard() {
                   </p>
                   <p className="text-[15px] leading-[1.75]" style={{ color: "rgba(255,255,255,0.75)" }}>
                     The final range starts at ID 250,000,001 and its upper bound moves forward every day.
-                    Each scan finds today's frontier, so{" "}
+                    Each scan finds today&apos;s frontier, so{" "}
                     <span className="font-mono font-semibold" style={{ color: "#34D399" }}>F7 size = frontier − 250M</span>.
                     The 86.45% validity rate stays fixed from the original study.
                   </p>
