@@ -13,9 +13,9 @@ import {
 import { getHistory, formatNumber } from "@/lib/data";
 
 const COLORS = {
-  primary: "hsl(212, 92%, 45%)",
-  green: "hsl(140, 71%, 45%)",
-  border: "hsl(220, 13%, 16%)",
+  primary: "hsl(212, 72%, 58%)",
+  green: "hsl(140, 60%, 48%)",
+  border: "hsl(220, 13%, 18%)",
   textMuted: "hsl(215, 18%, 68%)",
 };
 
@@ -54,7 +54,7 @@ export function GrowthChart({ compact = false }: GrowthChartProps) {
             content={({ active, payload, label }) => {
               if (!active || !payload?.length) return null;
               return (
-                <div className="rounded-md border border-border bg-card px-3 py-2 text-xs shadow-lg">
+                <div className="rounded-lg border border-border/80 bg-card px-3 py-2 text-xs shadow-xl">
                   <p className="font-medium text-foreground mb-1">{label}</p>
                   {payload.map((p, i) => (
                     <p key={i} className="text-muted-foreground">

@@ -29,10 +29,15 @@ export default function ResultsPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Results</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Complete estimation results, validation, and population characteristics
+      <div className="space-y-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)", paddingBottom: "1.5rem" }}>
+        <h1
+          className="font-bold tracking-tight"
+          style={{ fontSize: "clamp(1.6rem, 3.5vw, 2.2rem)", color: "rgba(255,255,255,0.95)", letterSpacing: "-0.02em" }}
+        >
+          Results
+        </h1>
+        <p className="text-base leading-relaxed" style={{ color: "rgba(255,255,255,0.45)", maxWidth: "62ch" }}>
+          Complete estimation results, validation, and population characteristics.
         </p>
       </div>
 

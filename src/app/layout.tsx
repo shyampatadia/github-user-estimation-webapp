@@ -15,13 +15,13 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "GitHub User Estimation | ~214.1M Valid Users",
+  title: "GitHub Census — How Many GitHub Users Exist?",
   description:
-    "Statistical estimation of total valid GitHub users using stratified random sampling. Live dashboard with daily frontier tracking.",
+    "Statistical estimation of GitHub's total valid user population using stratified random sampling across 24,000 API calls. Live frontier tracking with daily updates.",
   openGraph: {
-    title: "GitHub User Estimation | ~214.1M Valid Users",
+    title: "GitHub Census — How Many GitHub Users Exist?",
     description:
-      "How many real GitHub users exist? We used stratified random sampling to find out: ~214.1M valid accounts.",
+      "We used stratified random sampling across 24,000 API calls to estimate GitHub's real user count. Find out the answer, with 95% confidence.",
   },
 };
 
@@ -33,17 +33,20 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} font-[family-name:var(--font-geist-sans)] antialiased min-h-screen`}
+        className={`${geistSans.variable} ${geistMono.variable} font-[family-name:var(--font-geist-sans)] antialiased min-h-[100dvh] flex flex-col`}
       >
         <Nav />
-        <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
           {children}
         </main>
-        <footer className="border-t border-border mt-16">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 text-center text-sm text-muted-foreground">
-            Built with stratified random sampling, 24,000 API calls, and Next.js.
-            <span className="mx-2">|</span>
-            Data collected Feb 2026.
+        <footer className="mt-auto" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.22)" }}>
+              Built with stratified random sampling · 24,000 API calls · Next.js
+            </span>
+            <span className="text-[12px] font-mono" style={{ color: "rgba(255,255,255,0.18)" }}>
+              Data collected Feb 2026
+            </span>
           </div>
         </footer>
       </body>

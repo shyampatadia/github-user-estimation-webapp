@@ -16,13 +16,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getBaseline } from "@/lib/data";
 
 const COLORS = {
-  primary: "hsl(212, 92%, 45%)",
-  green: "hsl(140, 71%, 45%)",
-  purple: "hsl(280, 65%, 60%)",
-  orange: "hsl(38, 92%, 50%)",
+  primary: "hsl(212, 72%, 58%)",
+  green: "hsl(140, 60%, 48%)",
+  purple: "hsl(280, 55%, 60%)",
+  orange: "hsl(38, 85%, 52%)",
   muted: "hsl(215, 18%, 68%)",
-  border: "hsl(220, 13%, 16%)",
-  cardBg: "hsl(220, 13%, 7%)",
+  border: "hsl(220, 13%, 18%)",
+  cardBg: "hsl(220, 14%, 9%)",
   text: "hsl(210, 17%, 90%)",
   textMuted: "hsl(215, 18%, 68%)",
 };

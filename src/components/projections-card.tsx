@@ -49,7 +49,7 @@ export function ProjectionsCard() {
       : null;
 
   return (
-    <Card className="bg-card border-border">
+    <Card className="bg-card border-border rounded-xl overflow-hidden">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -91,8 +91,8 @@ export function ProjectionsCard() {
           </div>
         </div>
 
-        {/* Projection cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Projection cards - asymmetric: 2-col first two, 1 col third */}
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-3">
           {projections.map((p) => {
             const colorMap: Record<string, { dot: string; text: string; bar: string; badge: string }> = {
               blue: { dot: "bg-blue-500", text: "text-blue-400", bar: "bg-blue-500/30", badge: "bg-blue-500/10 text-blue-400 border-blue-500/20" },

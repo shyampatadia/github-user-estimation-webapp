@@ -55,15 +55,31 @@ function getInitialFrontier() {
   return h[h.length - 1]?.frontier_id || 262_206_000;
 }
 
-// Derive a baseline hourly growth rate from history.json entries.
-// Each entry's daily_new_ids = IDs added since previous day's entry (≈24h gap).
-// Average the last 7 entries for stability.
+// Derive a baseline hourly growth rate from history.json.
+// Computes actual frontier diff / actual day diff between consecutive dated entries
+// so it's robust to variable cron intervals and multi-day gaps.
+const MAX_REALISTIC_HOURLY = 60_000; // sanity cap: >60K IDs/hr is implausible
+
 function getBaselineGrowthRate(): number {
   const h = getHistory();
-  const recent = h.slice(-7).filter((e) => e.daily_new_ids > 0);
-  if (recent.length === 0) return 0;
-  const avgDaily = recent.reduce((sum, e) => sum + e.daily_new_ids, 0) / recent.length;
-  return Math.round(avgDaily / 24); // → IDs per hour
+  if (h.length < 2) return 0;
+
+  const rates: number[] = [];
+  for (let i = 1; i < h.length; i++) {
+    const dayDiff =
+      (new Date(h[i].date).getTime() - new Date(h[i - 1].date).getTime()) /
+      (1000 * 60 * 60 * 24);
+    const idDiff = h[i].frontier_id - h[i - 1].frontier_id;
+    // Only use pairs where dates differ and the gap is ≤ 7 days (ignore stale jumps)
+    if (dayDiff >= 1 && dayDiff <= 7 && idDiff > 0) {
+      rates.push(idDiff / dayDiff / 24); // → IDs per hour
+    }
+  }
+
+  if (rates.length === 0) return 0;
+  const recent = rates.slice(-7);
+  const avg = recent.reduce((sum, r) => sum + r, 0) / recent.length;
+  return Math.round(Math.min(avg, MAX_REALISTIC_HOURLY));
 }
 
 const LS_KEY = "realtime-session";
@@ -145,13 +161,19 @@ export function RealtimeDashboard() {
 
   // Restore session from localStorage on mount
   useEffect(() => {
+    // Purge any previously-saved session that has an implausible growth rate
+    // (could have been saved by an earlier bug where close-together scans gave huge rates)
+    const raw = loadSession();
+    if (raw && raw.growthRate > MAX_REALISTIC_HOURLY) {
+      saveSession({ ...raw, growthRate: 0 });
+    }
     const session = loadSession();
     if (session) {
       if (session.lastScanMs > 0) setLastScanMs(session.lastScanMs);
       if (session.scanCount > 0) setScanCount(session.scanCount);
       if (session.lastScanTime) setLastScanTime(session.lastScanTime);
-      // Only override history-derived rate if session has a live-measured rate
-      if (session.growthRate > 0) {
+      // Only override history-derived rate if session has a plausible live-measured rate
+      if (session.growthRate > 0 && session.growthRate <= MAX_REALISTIC_HOURLY) {
         setGrowthRate(session.growthRate);
         setDataSource("live");
       }
@@ -186,8 +208,14 @@ export function RealtimeDashboard() {
         : 0;
       const idDiff = data.frontier_id - prevFrontier.current;
 
-      if (timeDiffHours > 0 && idDiff > 0) {
-        setGrowthRate(Math.round(idDiff / timeDiffHours));
+      // Only update live rate when scans are ≥5 min apart (prevents div-by-tiny-number)
+      // and the result is within a realistic range
+      const MIN_GAP_HRS = 5 / 60;
+      if (timeDiffHours >= MIN_GAP_HRS && idDiff > 0) {
+        const liveRate = Math.round(idDiff / timeDiffHours);
+        if (liveRate <= MAX_REALISTIC_HOURLY) {
+          setGrowthRate(liveRate);
+        }
       }
 
       prevScanTime.current = now;
@@ -203,13 +231,18 @@ export function RealtimeDashboard() {
       setLastScanTime(scanTimeStr);
 
       // Persist session so values survive page refresh
+      // Only save a live-computed rate if it was valid (≥5 min gap, within realistic range)
+      const computedLiveRate = timeDiffHours >= MIN_GAP_HRS && idDiff > 0
+        ? Math.round(idDiff / timeDiffHours)
+        : null;
+      const rateToSave = (computedLiveRate !== null && computedLiveRate <= MAX_REALISTIC_HOURLY)
+        ? computedLiveRate
+        : growthRate;
       saveSession({
         lastScanMs: data.probe_ms,
         scanCount: newScanCount,
         lastScanTime: scanTimeStr,
-        growthRate: timeDiffHours > 0 && idDiff > 0
-          ? Math.round(idDiff / timeDiffHours)
-          : growthRate,
+        growthRate: rateToSave,
       });
 
       if (timeDiffHours > 0 && idDiff > 0) setDataSource("live");
@@ -325,19 +358,19 @@ export function RealtimeDashboard() {
       </div>
 
       {error && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
           {error}
         </div>
       )}
 
       {/* Hero Numbers */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="bg-card border-border gradient-border overflow-hidden">
+        <Card className="rounded-xl bg-card border-border gradient-border overflow-hidden">
           <CardContent className="p-6 relative">
             <div className="absolute top-3 right-3">
               {isLive && (
                 <span className="flex items-center gap-1.5 text-xs text-red-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                  <span className="data-pulse h-1.5 w-1.5 rounded-full bg-red-500" />
                   LIVE
                 </span>
               )}
@@ -369,29 +402,40 @@ export function RealtimeDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border gradient-border overflow-hidden">
+        <Card className="rounded-xl bg-card border-border gradient-border overflow-hidden">
           <CardContent className="p-6">
             <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
               Estimated Valid Users
             </p>
-            <p className="text-4xl sm:text-5xl font-bold font-mono tabular-nums text-green-400 tracking-tight glow-text">
+            <p className="text-4xl sm:text-5xl font-bold font-mono tabular-nums text-emerald-400 tracking-tight">
               ~{fmtBig(currentEstimate)}
             </p>
             {currentEstimate > 0 && (() => {
               const ci = computeLiveCI(currentFrontier, currentEstimate);
               return (
-                <div className="mt-3 space-y-1">
-                  <p className="text-xs text-muted-foreground">
-                    95% CI:{" "}
-                    <span className="font-mono text-foreground">
-                      [{fmtBig(ci.lower)}, {fmtBig(ci.upper)}]
-                    </span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    SE: <span className="font-mono text-foreground">{fmt(ci.se)}</span>
-                    {" · "}
-                    Rel. width: <span className="font-mono text-foreground">{(ci.relWidth * 100).toFixed(2)}%</span>
-                  </p>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div
+                    className="rounded-lg p-3"
+                    style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.18)" }}
+                  >
+                    <p className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "rgba(52,211,153,0.7)" }}>
+                      95% Confidence Range
+                    </p>
+                    <p className="font-mono text-[14px] font-semibold" style={{ color: "rgba(255,255,255,0.92)" }}>
+                      {fmtBig(ci.lower)} – {fmtBig(ci.upper)}
+                    </p>
+                  </div>
+                  <div
+                    className="rounded-lg p-3"
+                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+                  >
+                    <p className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "rgba(255,255,255,0.45)" }}>
+                      Margin of Error
+                    </p>
+                    <p className="font-mono text-[14px] font-semibold" style={{ color: "rgba(255,255,255,0.92)" }}>
+                      ±{(ci.relWidth * 50).toFixed(2)}%
+                    </p>
+                  </div>
                 </div>
               );
             })()}
@@ -400,63 +444,63 @@ export function RealtimeDashboard() {
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card className="bg-card border-border">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="rounded-xl bg-card border-border">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Growth Rate</p>
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${dataSource === "live" ? "bg-green-500/15 text-green-400" : "bg-secondary text-muted-foreground"}`}>
-                {dataSource === "live" ? "live" : "history"}
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.5)" }}>Growth Rate</p>
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${dataSource === "live" ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground"}`}>
+                {dataSource === "live" ? "live" : "est."}
               </span>
             </div>
-            <p className="text-2xl font-bold text-blue-400 font-mono tabular-nums">
+            <p className="text-2xl font-bold text-primary font-mono tabular-nums">
               {fmt(growthRate)}/hr
             </p>
-            <p className="text-xs text-muted-foreground mt-1">IDs allocated per hour</p>
+            <p className="text-[12px] mt-1.5" style={{ color: "rgba(255,255,255,0.58)" }}>New IDs per hour</p>
           </CardContent>
         </Card>
-        <Card className="bg-card border-border">
+        <Card className="rounded-xl bg-card border-border">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">New Users/Hr</p>
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${dataSource === "live" ? "bg-green-500/15 text-green-400" : "bg-secondary text-muted-foreground"}`}>
-                {dataSource === "live" ? "live" : "history"}
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.5)" }}>New Users/Hr</p>
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${dataSource === "live" ? "bg-emerald-500/15 text-emerald-400" : "bg-secondary text-muted-foreground"}`}>
+                {dataSource === "live" ? "live" : "est."}
               </span>
             </div>
-            <p className="text-2xl font-bold text-green-400 font-mono tabular-nums">
+            <p className="text-2xl font-bold text-emerald-400 font-mono tabular-nums">
               ~{fmt(Math.round(growthRate * 0.8182))}/hr
             </p>
-            <p className="text-xs text-muted-foreground mt-1">At 81.82% validity</p>
+            <p className="text-[12px] mt-1.5" style={{ color: "rgba(255,255,255,0.58)" }}>At 81.8% validity rate</p>
           </CardContent>
         </Card>
-        <Card className="bg-card border-border">
+        <Card className="rounded-xl bg-card border-border">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Daily Rate</p>
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${dataSource === "live" ? "bg-green-500/15 text-green-400" : "bg-secondary text-muted-foreground"}`}>
-                {dataSource === "live" ? "live" : "history"}
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.5)" }}>Daily Rate</p>
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${dataSource === "live" ? "bg-emerald-500/15 text-emerald-400" : "bg-secondary text-muted-foreground"}`}>
+                {dataSource === "live" ? "live" : "est."}
               </span>
             </div>
-            <p className="text-2xl font-bold text-orange-400 font-mono tabular-nums">
+            <p className="text-2xl font-bold text-amber-400 font-mono tabular-nums">
               ~{fmtBig(growthRate * 24)}/day
             </p>
-            <p className="text-xs text-muted-foreground mt-1">Extrapolated 24h</p>
+            <p className="text-[12px] mt-1.5" style={{ color: "rgba(255,255,255,0.58)" }}>Extrapolated 24 hours</p>
           </CardContent>
         </Card>
-        <Card className="bg-card border-border">
+        <Card className="rounded-xl bg-card border-border">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Scan Latency</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.5)" }}>Scan Latency</p>
               {lastScanMs > 0 && (
-                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400">
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400">
                   {scanCount} scans
                 </span>
               )}
             </div>
-            <p className="text-2xl font-bold text-purple-400 font-mono tabular-nums">
+            <p className="text-2xl font-bold text-violet-400 font-mono tabular-nums">
               {lastScanMs > 0 ? `${lastScanMs}ms` : "--"}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-[12px] mt-1.5" style={{ color: "rgba(255,255,255,0.58)" }}>
               {lastScanMs > 0 ? `${recentProbes.length} probes this session` : "Run a scan to measure"}
             </p>
           </CardContent>
@@ -465,10 +509,10 @@ export function RealtimeDashboard() {
 
       {/* Live Chart */}
       {liveHistory.length > 1 && (
-        <Card className="bg-card border-border">
+        <Card className="rounded-xl bg-card border-border">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+              <div className="data-pulse h-2 w-2 rounded-full bg-emerald-500" />
               Live Frontier Tracking (Session)
             </CardTitle>
           </CardHeader>
@@ -476,11 +520,11 @@ export function RealtimeDashboard() {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={liveHistory} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 16%)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 18%)" />
                   <XAxis
                     dataKey="time"
                     tick={{ fontSize: 10, fill: "hsl(215, 18%, 68%)" }}
-                    axisLine={{ stroke: "hsl(220, 13%, 16%)" }}
+                    axisLine={{ stroke: "hsl(220, 13%, 18%)" }}
                     tickLine={false}
                   />
                   <YAxis
@@ -510,9 +554,9 @@ export function RealtimeDashboard() {
                     type="monotone"
                     dataKey="frontier"
                     name="Frontier ID"
-                    stroke="hsl(212, 92%, 45%)"
+                    stroke="hsl(212, 72%, 58%)"
                     strokeWidth={2}
-                    dot={{ r: 3, fill: "hsl(212, 92%, 45%)" }}
+                    dot={{ r: 3, fill: "hsl(212, 72%, 58%)" }}
                     activeDot={{ r: 5 }}
                   />
                 </LineChart>
@@ -523,15 +567,17 @@ export function RealtimeDashboard() {
       )}
 
       {/* Recent Discoveries Timeline */}
-      <Card className="bg-card border-border">
+      <Card className="rounded-xl bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold">Recent Discoveries</CardTitle>
         </CardHeader>
         <CardContent>
           {recentProbes.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">
-              No probes yet. Hit &quot;Manual Scan&quot; or enable Live mode to start tracking.
-            </p>
+            <div className="py-10 text-center">
+              <p className="text-[15px]" style={{ color: "rgba(255,255,255,0.62)" }}>
+                No probes yet. Hit &quot;Manual Scan&quot; or enable Live mode to start tracking.
+              </p>
+            </div>
           ) : (
             <div className="space-y-0 max-h-[400px] overflow-y-auto">
               {recentProbes.map((probe, i) => (
@@ -578,141 +624,168 @@ export function RealtimeDashboard() {
       </Card>
 
       {/* Projections link */}
-      <div className="flex items-center gap-2 rounded-md border border-border/50 bg-secondary/20 px-4 py-3">
-        <svg className="h-4 w-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <div className="flex items-center gap-3 rounded-xl px-5 py-4" style={{ background: "rgba(99,155,230,0.07)", border: "1px solid rgba(99,155,230,0.18)" }}>
+        <svg className="h-4 w-4 shrink-0" style={{ color: "rgba(99,155,230,0.85)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
         </svg>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[15px]" style={{ color: "rgba(255,255,255,0.75)" }}>
           Growth projections (30d, 90d, 1yr) are available on the{" "}
-          <a href="/" className="text-primary hover:underline font-medium">Dashboard</a>.
+          <a href="/" className="font-semibold hover:underline" style={{ color: "rgba(99,155,230,0.95)" }}>Dashboard</a>.
         </p>
       </div>
 
       {/* How Scanning Works */}
-      <Card className="bg-card border-border">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">How Scanning Works</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <div className="rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.08)" }}>
+        <div className="px-6 py-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+          <h2 className="text-lg font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>How Scanning Works</h2>
+        </div>
+        <div className="p-6 space-y-6">
+
+          {/* Mode cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Live Mode */}
-            <div className="rounded-md border border-red-500/20 bg-red-500/5 p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-sm font-semibold text-foreground">Live Mode</span>
+            <div className="rounded-xl p-5 space-y-3" style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.22)" }}>
+              <div className="flex items-center gap-2.5">
+                <span className="data-pulse h-2.5 w-2.5 rounded-full bg-red-500 shrink-0" />
+                <span className="text-[16px] font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>Live Mode</span>
               </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Automatically re-runs a scan every <span className="text-foreground font-medium">30 seconds</span>.
-                Each scan makes ~12 GitHub API calls to locate the current frontier and recomputes the population estimate.
-                Use this to watch the frontier advance in real time.
+              <p className="text-[15px] leading-[1.75]" style={{ color: "rgba(255,255,255,0.75)" }}>
+                Automatically re-runs a scan every{" "}
+                <span style={{ color: "#f87171" }} className="font-semibold">30 seconds</span>.
+                Each scan probes the GitHub API to locate the current frontier and recompute the
+                population estimate.
               </p>
             </div>
-            {/* Manual Scan */}
-            <div className="rounded-md border border-blue-500/20 bg-blue-500/5 p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <svg className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <div className="rounded-xl p-5 space-y-3" style={{ background: "rgba(99,155,230,0.07)", border: "1px solid rgba(99,155,230,0.22)" }}>
+              <div className="flex items-center gap-2.5">
+                <svg className="h-4 w-4 shrink-0" style={{ color: "rgba(99,155,230,0.9)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672 13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672ZM12 2.25V4.5m5.834.166-1.591 1.591M20.25 10.5H18M7.757 14.743l-1.59 1.59M6 10.5H3.75m4.007-4.243-1.59-1.59" />
                 </svg>
-                <span className="text-sm font-semibold text-foreground">Manual Scan</span>
+                <span className="text-[16px] font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>Manual Scan</span>
               </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Runs a <span className="text-foreground font-medium">single on-demand scan</span> using the same algorithm.
-                Useful for checking the current frontier without continuous polling.
+              <p className="text-[15px] leading-[1.75]" style={{ color: "rgba(255,255,255,0.75)" }}>
+                Runs a{" "}
+                <span style={{ color: "rgba(99,155,230,0.9)" }} className="font-semibold">single on-demand scan</span>{" "}
+                using the same algorithm. Useful for checking the frontier without continuous polling.
               </p>
             </div>
           </div>
 
-          {/* Algorithm */}
-          <div className="rounded-md bg-secondary/40 p-4 space-y-3">
-            <p className="text-sm font-semibold text-foreground">Scan Algorithm (~12 API calls per scan)</p>
-            <ol className="space-y-2 text-sm text-muted-foreground list-none">
-              <li className="flex items-start gap-3">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold mt-0.5">1</span>
-                <span><span className="text-foreground font-medium">Exponential forward scan</span> — probes at +1K, +2K, +4K, +8K, +16K, +32K from last known frontier until a 404 is hit. Finds the overshoot boundary in O(log gap) calls.</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold mt-0.5">2</span>
-                <span><span className="text-foreground font-medium">Binary search</span> — narrows the gap between the last valid ID and the overshoot to ~200 ID precision in ~4 calls.</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold mt-0.5">3</span>
-                <span><span className="text-foreground font-medium">Fine forward scan</span> — probes +100 steps from the refined frontier to push it as far forward as possible before committing.</span>
-              </li>
+          {/* Algorithm steps */}
+          <div className="rounded-xl p-6 space-y-5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <p className="text-[16px] font-semibold" style={{ color: "rgba(255,255,255,0.92)" }}>
+              Scan Algorithm
+            </p>
+            <ol className="space-y-5 list-none">
+              {[
+                { n: "1", title: "Exponential scan", body: "Probes IDs at +1K, +2K, +4K, +8K, +16K, +32K ahead of the last known frontier until a missing account is found. Locates the boundary in just a few calls.", color: "#639BE6", bg: "rgba(99,155,230,0.18)" },
+                { n: "2", title: "Binary search", body: "Narrows the exact boundary between the last valid ID and the first missing one — down to roughly 200-ID precision in about 4 calls.", color: "#FBBF24", bg: "rgba(251,191,36,0.18)" },
+                { n: "3", title: "Fine scan", body: "Advances forward in small +100 steps from the refined position to push the frontier as far ahead as possible before recording.", color: "#34D399", bg: "rgba(52,211,153,0.18)" },
+              ].map((step) => (
+                <li key={step.n} className="flex items-start gap-4">
+                  <span
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[14px] font-bold font-mono mt-0.5"
+                    style={{ background: step.bg, color: step.color }}
+                  >
+                    {step.n}
+                  </span>
+                  <div>
+                    <span className="text-[16px] font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>{step.title} — </span>
+                    <span className="text-[15px] leading-[1.75]" style={{ color: "rgba(255,255,255,0.75)" }}>{step.body}</span>
+                  </div>
+                </li>
+              ))}
             </ol>
           </div>
 
-          {/* Estimate formula — step-by-step derivation */}
-          <div className="rounded-md bg-secondary/40 p-4 space-y-4">
-            <p className="text-sm font-semibold text-foreground">Where does the estimate come from?</p>
+          {/* Estimate derivation */}
+          <div className="rounded-xl p-6 space-y-6" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <p className="text-[16px] font-semibold" style={{ color: "rgba(255,255,255,0.92)" }}>
+              Where does the estimate come from?
+            </p>
 
-            {/* Step 1 */}
-            <div className="flex items-start gap-3">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-bold mt-0.5">1</span>
-              <div className="space-y-1.5">
-                <p className="text-sm font-semibold text-foreground">Measure validity rate in each ID range (stratum)</p>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  We randomly sampled IDs from 7 ranges (strata) and called the GitHub API on each one.
-                  An ID is <span className="text-green-400 font-medium">valid</span> if GitHub returns a user/org,{" "}
-                  <span className="text-red-400 font-medium">invalid</span> (deleted/never assigned) if it returns 404.
-                  This gives us <span className="font-mono text-foreground">p̂ₕ</span> — the fraction of valid IDs in stratum h.
-                </p>
-                <div className="font-mono text-sm text-muted-foreground bg-secondary/60 rounded px-3 py-1.5">
-                  e.g. F3 (50M–100M): 2,753 valid / 3,057 sampled → p̂₃ = <span className="text-foreground font-semibold">0.9006</span>
+            <div className="space-y-6">
+              {/* Step 1 */}
+              <div className="flex items-start gap-4">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[14px] font-bold font-mono mt-0.5" style={{ background: "rgba(99,155,230,0.18)", color: "#639BE6" }}>1</span>
+                <div className="space-y-2 flex-1">
+                  <p className="text-[16px] font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>
+                    Measure how many IDs are valid in each range
+                  </p>
+                  <p className="text-[15px] leading-[1.75]" style={{ color: "rgba(255,255,255,0.75)" }}>
+                    We randomly sampled IDs from 7 ranges and called GitHub's API on each one.
+                    An ID is <span style={{ color: "#4ade80" }} className="font-semibold">valid</span> if it returns a real user or org,{" "}
+                    <span style={{ color: "#f87171" }} className="font-semibold">invalid</span> if it returns "not found".
+                    This gives the validity rate for each range.
+                  </p>
+                  <div className="rounded-lg px-4 py-3 mt-1" style={{ background: "rgba(99,155,230,0.1)", border: "1px solid rgba(99,155,230,0.2)" }}>
+                    <span className="text-[14px] font-mono" style={{ color: "rgba(255,255,255,0.85)" }}>
+                      Range F3 (50M–100M): 2,753 valid out of 3,057 sampled = <span style={{ color: "#639BE6" }} className="font-bold">90.1% validity</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="flex items-start gap-4">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[14px] font-bold font-mono mt-0.5" style={{ background: "rgba(251,191,36,0.18)", color: "#FBBF24" }}>2</span>
+                <div className="space-y-2 flex-1">
+                  <p className="text-[16px] font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>
+                    Scale up to the full range size
+                  </p>
+                  <p className="text-[15px] leading-[1.75]" style={{ color: "rgba(255,255,255,0.75)" }}>
+                    Each range spans a known number of IDs. Multiplying the range size by its validity
+                    rate gives the estimated number of real accounts in that range.
+                  </p>
+                  <div className="rounded-lg px-4 py-3 mt-1" style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.18)" }}>
+                    <span className="text-[14px] font-mono" style={{ color: "rgba(255,255,255,0.85)" }}>
+                      F3: 50,000,000 IDs × 90.1% = <span style={{ color: "#FBBF24" }} className="font-bold">45,027,805 real accounts</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="flex items-start gap-4">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[14px] font-bold font-mono mt-0.5" style={{ background: "rgba(167,139,250,0.18)", color: "#A78BFA" }}>3</span>
+                <div className="space-y-2 flex-1">
+                  <p className="text-[16px] font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>
+                    Add up all ranges
+                  </p>
+                  <p className="text-[15px] leading-[1.75]" style={{ color: "rgba(255,255,255,0.75)" }}>
+                    Ranges F1–F6 have fixed boundaries, so their counts are computed once and stay constant.
+                    Together they contribute <span className="font-mono font-semibold" style={{ color: "rgba(255,255,255,0.92)" }}>203,993,745</span> accounts.
+                  </p>
+                </div>
+              </div>
+
+              {/* Step 4 */}
+              <div className="flex items-start gap-4">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[14px] font-bold font-mono mt-0.5" style={{ background: "rgba(52,211,153,0.18)", color: "#34D399" }}>4</span>
+                <div className="space-y-2 flex-1">
+                  <p className="text-[16px] font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>
+                    Range F7 grows live
+                  </p>
+                  <p className="text-[15px] leading-[1.75]" style={{ color: "rgba(255,255,255,0.75)" }}>
+                    The final range starts at ID 250,000,001 and its upper bound moves forward every day.
+                    Each scan finds today's frontier, so{" "}
+                    <span className="font-mono font-semibold" style={{ color: "#34D399" }}>F7 size = frontier − 250M</span>.
+                    The 86.45% validity rate stays fixed from the original study.
+                  </p>
                 </div>
               </div>
             </div>
 
-            {/* Step 2 */}
-            <div className="flex items-start gap-3">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-bold mt-0.5">2</span>
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-foreground">Scale up to the full stratum size</p>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Each stratum has a known total number of IDs (<span className="font-mono text-foreground">Mₕ</span>).
-                  Multiplying gives the estimated valid accounts in that stratum:
-                </p>
-                <div className="overflow-x-auto pt-1">
-                  <MathBlock math="\hat{N}_h = M_h \times \hat{p}_h" display={false} />
-                </div>
-                <div className="font-mono text-sm text-muted-foreground bg-secondary/60 rounded px-3 py-1.5">
-                  e.g. F3: 50,000,000 × 0.9006 = <span className="text-foreground font-semibold">45,027,805</span> valid accounts
-                </div>
-              </div>
-            </div>
-
-            {/* Step 3 */}
-            <div className="flex items-start gap-3">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-bold mt-0.5">3</span>
-              <div className="space-y-1.5">
-                <p className="text-sm font-semibold text-foreground">Sum across all strata</p>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  F1–F6 have fixed sizes (their ID ranges are fully defined). Their contributions are computed once from the baseline study.
-                </p>
-                <div className="overflow-x-auto pt-1">
-                  <MathBlock math="\hat{N} = \sum_{h=1}^{7} M_h \cdot \hat{p}_h" display={false} />
-                </div>
-              </div>
-            </div>
-
-            {/* Step 4 — Live part */}
-            <div className="flex items-start gap-3">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-500/20 text-green-400 text-xs font-bold mt-0.5">4</span>
-              <div className="space-y-1.5">
-                <p className="text-sm font-semibold text-foreground">F7 is the only live part</p>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Stratum F7 starts at ID 250,000,001 and its upper bound grows daily as GitHub creates new accounts.
-                  Each scan finds the current frontier ID, making{" "}
-                  <span className="font-mono text-foreground">M₇ = frontier − 250M</span>.
-                  The validity rate <span className="font-mono text-foreground">p̂₇ = 0.8645</span> stays fixed from the study.
-                </p>
-                <div className="overflow-x-auto pt-1">
-                  <MathBlock math="\hat{N} = \underbrace{203{,}993{,}745}_{\text{F1–F6 (fixed)}} + \underbrace{(F_{\text{frontier}} - 250\text{M}) \times 0.8645}_{\text{F7 (live)}}" display={false} />
-                </div>
-              </div>
+            {/* Final formula */}
+            <div
+              className="rounded-xl p-4 overflow-x-auto"
+              style={{ background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              <MathBlock math="\hat{N} = \underbrace{203{,}993{,}745}_{\text{ranges F1–F6 (fixed)}} + \underbrace{(F_{\text{frontier}} - 250\text{M}) \times 0.8645}_{\text{range F7 (updates live)}}" />
             </div>
           </div>
-        </CardContent>
-      </Card>
+
+        </div>
+      </div>
     </div>
   );
 }
