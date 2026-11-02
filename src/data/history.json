@@ -1552,5 +1552,11 @@
     "frontier_id": 351196826,
     "estimated_total": 291490931,
     "daily_new_ids": 130426
+  },
+  {
+    "date": "2026-11-02",
+    "frontier_id": 351257974,
+    "estimated_total": 291543795,
+    "daily_new_ids": 61148
   }
 ]
